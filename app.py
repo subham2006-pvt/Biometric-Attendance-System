@@ -1,344 +1,395 @@
 import os
-import ast
-import io
 import cv2
-import threading
+import sys
+import time
 import numpy as np
+import datetime
+import threading
+from flask import Flask, render_template, Response, jsonify, send_file
 import mysql.connector
-from datetime import datetime
-from flask import Flask, render_template, Response, request, redirect, url_for, jsonify, send_file
-import face_recognition
 import mediapipe as mp
-
-# Excel Styling Engines
-import openpyxl
+import face_recognition
+from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
 
-# --- Multi-Threaded Camera Engine Wrapper ---
+# --- DATABASE SETUP ---
+DB_CONFIG = {
+    'host': 'localhost',
+    'user': 'root',
+    'password': '',  # Add your MySQL password here if configured
+    'database': 'attendance_system'
+}
+
+def get_db_connection():
+    return mysql.connector.connect(**DB_CONFIG)
+
+# Ensure database tables exist at boot
+try:
+    db = get_db_connection()
+    cursor = db.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS students (
+        roll_no VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        encoding LONGTEXT NOT NULL
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS attendance_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        log_date DATE NOT NULL,
+        roll_no VARCHAR(50) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        in_time TIME NOT NULL,
+        out_time VARCHAR(50) DEFAULT 'Pending',
+        FOREIGN KEY (roll_no) REFERENCES students(roll_no) ON DELETE CASCADE
+    );
+    """)
+    db.commit()
+    cursor.close()
+    db.close()
+    print("✓ Local MySQL Database Tables Validated Successfully.")
+except Exception as e:
+    print(f"✗ Database Initialization Failure: {e}")
+    sys.exit(1)
+
+# --- COMPUTER VISION INITIALIZATION ---
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7, min_tracking_confidence=0.7)
+
+# Thread-safe Frame Buffer Object
 class VideoCaptureThread:
-    """Continuously captures raw camera buffers on a separate background thread to eliminate lagging."""
     def __init__(self, src=0):
         self.cap = cv2.VideoCapture(src)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.ret, self.frame = self.cap.read()
         self.running = True
-        self.thread = threading.Thread(target=self.update, args=(), daemon=True)
+        self.lock = threading.Lock()
+        self.thread = threading.Thread(target=self.update, args=())
+        self.thread.daemon = True
         self.thread.start()
 
     def update(self):
         while self.running:
             ret, frame = self.cap.read()
             if ret:
-                self.ret, self.frame = ret, frame
+                with self.lock:
+                    self.ret = ret
+                    self.frame = frame
+            time.sleep(0.01)
 
     def read(self):
-        return self.ret, self.frame.copy() if self.frame is not None else None
+        with self.lock:
+            return self.ret, self.frame.copy() if self.frame is not None else None
 
     def stop(self):
         self.running = False
         self.cap.release()
 
-# Spin up our multi-threaded camera instance
-camera = VideoCaptureThread(0)
-PALM_TRIGGER_FLAG = False
+# Global hardware processing pointer
+video_stream = VideoCaptureThread(src=0)
 
-# --- MySQL Database Configuration ---
-def get_db_connection():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",  
-        database="attendance_system"
-    )
+# --- CACHE AND BIOMETRIC MEMORY MANAGEMENT ---
+known_encodings = []
+known_roll_nos = []
+known_names = []
+last_gesture_time = 0
+GESTURE_COOLDOWN = 1.5  # Seconds between physical interactions
 
-# --- MediaPipe Configuration Setup ---
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.6)
-
-def load_known_faces():
-    known_encodings, known_names, known_rolls = [], [], []
+def reload_biometric_cache():
+    global known_encodings, known_roll_nos, known_names
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT roll_no, name, encoding FROM students")
-        for row in cursor.fetchall():
-            roll_no, name, enc_str = row
-            known_encodings.append(np.array(ast.literal_eval(enc_str)))
-            known_names.append(name)
-            known_rolls.append(roll_no)
-        cursor.close(); conn.close()
+        records = cursor.fetchall()
+        
+        encodings, rolls, names = [], [], []
+        for row in records:
+            # Reconstruct string array into 128-dimensional floating point numpy array
+            arr = np.fromstring(row['encoding'].strip('[]'), sep=',')
+            if len(arr) == 128:
+                encodings.append(arr)
+                rolls.append(row['roll_no'])
+                names.append(row['name'])
+        
+        known_encodings, known_roll_nos, known_names = encodings, rolls, names
+        cursor.close()
+        conn.close()
     except Exception as e:
-        print(f"Database sync error: {e}")
-    return known_encodings, known_names, known_rolls
+        print(f"Error refreshing cache: {e}")
 
-def process_attendance_transaction(roll_no, name):
+reload_biometric_cache()
+
+# --- HARDWARE EVENT MATCHERS ---
+def process_gesture_and_biometrics(rgb_frame, bgr_frame):
+    global last_gesture_time
+    current_time = time.time()
+    if current_time - last_gesture_time < GESTURE_COOLDOWN:
+        return
+
+    # Process Hand Landmarks via MediaPipe
+    results = hands.process(rgb_frame)
+    if not results.multi_hand_landmarks:
+        return
+
+    for hand_landmarks in results.multi_hand_landmarks:
+        lm = hand_landmarks.landmark
+        
+        # Test for Thumbs Up (👍) -> Check-In / Check-Out
+        thumb_is_up = lm[4].y < lm[3].y < lm[2].y
+        fingers_are_down = all(lm[i].y > lm[i-2].y for i in [8, 12, 16, 20])
+        
+        if thumb_is_up and fingers_are_down:
+            print("👍 Thumbs Up Detected! Authenticating user profile...")
+            last_gesture_time = current_time
+            handle_authentication_event(bgr_frame)
+            return
+
+        # Test for Open Palm (✋) -> Profile Registration Trigger
+        palm_is_open = all(lm[i].y < lm[i-2].y for i in [8, 12, 16, 20])
+        if palm_is_open:
+            print("✋ Open Palm Detected! Launching terminal profile registration wizard...")
+            last_gesture_time = current_time
+            handle_registration_event(bgr_frame)
+            return
+
+def handle_authentication_event(frame):
+    face_locs = face_recognition.face_locations(frame)
+    face_encs = face_recognition.face_encodings(frame, face_locs)
+    
+    if not face_encs:
+        print("✗ Authentication Error: Face footprint not found in frame layout.")
+        return
+
+    for enc in face_encs:
+        matches = face_recognition.compare_faces(known_encodings, enc, tolerance=0.5)
+        if True in matches:
+            idx = matches.index(True)
+            roll_no = known_roll_nos[idx]
+            name = known_names[idx]
+            execute_attendance_sql(roll_no, name)
+            return
+    print("✗ Authentication Error: Target face not recognized against system records.")
+
+def execute_attendance_sql(roll_no, name):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        today = datetime.now().strftime('%Y-%m-%d')
-        now_time = datetime.now()
-        now_str = now_time.strftime('%H:%M:%S')
+        cursor = conn.cursor(dictionary=True)
+        today = datetime.date.today().strftime('%Y-%m-%d')
+        now_time = datetime.datetime.now().strftime('%H:%M:%S')
 
+        # Check for active existing logs today
         cursor.execute(
             "SELECT id, in_time, out_time FROM attendance_logs WHERE roll_no = %s AND log_date = %s ORDER BY id DESC LIMIT 1",
             (roll_no, today)
         )
-        last_log = cursor.fetchone()
+        log = cursor.fetchone()
 
-        if not last_log or last_log[2] != "Pending":
-            sql = "INSERT INTO attendance_logs (log_date, roll_no, name, in_time, out_time) VALUES (%s, %s, %s, %s, 'Pending')"
-            cursor.execute(sql, (today, roll_no, name, now_str))
-            conn.commit()
-            cursor.close(); conn.close()
-            return f"Logged In: {name}", (0, 255, 0)
-
-        log_id, in_time_str, _ = last_log
-        in_time_parsed = datetime.strptime(f"{today} {in_time_str}", '%Y-%m-%d %H:%M:%S')
-        elapsed_hours = (now_time - in_time_parsed).total_seconds() / 3600.0
-
-        if elapsed_hours < 4.0:
-            cursor.close(); conn.close()
-            return "Lockout: < 4 Hrs!", (0, 0, 255)
+        if not log:
+            # Insert direct brand-new Clock-In registry
+            cursor.execute(
+                "INSERT INTO attendance_logs (log_date, roll_no, name, in_time) VALUES (%s, %s, %s, %s)",
+                (today, roll_no, name, now_time)
+            )
+            print(f"✓ Session Clocked In Successfully: {name} [{roll_no}]")
         else:
-            cursor.execute("UPDATE attendance_logs SET out_time = %s WHERE id = %s", (now_str, log_id))
-            conn.commit()
-            cursor.close(); conn.close()
-            return f"Logged Out: {name}", (255, 165, 0)
+            if log['out_time'] != 'Pending':
+                print(f"ℹ Log Guard alert: {name} already has a fully completed shift layout today.")
+            else:
+                # Enforce rigid 4-hour active session lock protection constraint
+                in_datetime = datetime.datetime.strptime(str(log['in_time']), '%H:%M:%S')
+                now_datetime = datetime.datetime.strptime(now_time, '%H:%M:%S')
+                elapsed_hours = (now_datetime - in_datetime).total_seconds() / 3600.0
+
+                if elapsed_hours < 4.0:
+                    print(f"⚠️ Lockout Warning: Multi-punch prevented. Shift lockout active for next {4.0 - elapsed_hours:.2f} hours.")
+                else:
+                    cursor.execute(
+                        "UPDATE attendance_logs SET out_time = %s WHERE id = %s",
+                        (now_time, log['id'])
+                    )
+                    print(f"✓ Session Clocked Out Successfully: {name} [{roll_no}]")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
     except Exception as e:
-        print(f"Transaction failure: {e}")
-        return "System DB Error", (0, 0, 255)
+        print(f"SQL Error during processing: {e}")
 
-def analyze_hand_gestures(frame):
-    global PALM_TRIGGER_FLAG
-    # Downscale for faster gesture detection performance
-    small_hand_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-    rgb_frame = cv2.cvtColor(small_hand_frame, cv2.COLOR_BGR2RGB)
-    results = hands.process(rgb_frame)
-    if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
-            lms = hand_landmarks.landmark
-            
-            # ✋ Open Palm Analysis
-            palm_check = (lms[4].y < lms[3].y) and (lms[8].y < lms[6].y) and \
-                         (lms[12].y < lms[10].y) and (lms[16].y < lms[14].y) and \
-                         (lms[20].y < lms[18].y)
-            if palm_check: return "PALM"
-            
-            # 👍 Thumbs Up Analysis
-            thumb_check = lms[4].y < lms[3].y < lms[2].y
-            fingers_curled = (lms[8].x > lms[6].x if lms[5].x < lms[17].x else lms[8].x < lms[6].x) and \
-                             (lms[12].y > lms[10].y) and (lms[16].y > lms[14].y) and (lms[20].y > lms[18].y)
-            if thumb_check and fingers_curled: return "THUMBS_UP"
-    return None
+def handle_registration_event(frame):
+    face_locs = face_recognition.face_locations(frame)
+    face_encs = face_recognition.face_encodings(frame, face_locs)
 
-def generate_video_stream():
-    global PALM_TRIGGER_FLAG
-    frame_count = 0
-    hud_message = ""
-    hud_color = (255, 255, 255)
-    message_timeout = 0
+    if not face_encs:
+        print("✗ Registration Error: Hold face steady within camera line of sight.")
+        return
+
+    target_encoding = face_encs[0]
     
-    # Store persistent overlays between evaluation ticks to stop lagging freezes
-    cached_face_boxes = []
-    
+    # Intercept processing thread loop to open terminal entry configuration safely
+    print("\n--- NEW BIOMETRIC PROFILE ENROLLMENT WIZARD ---")
+    reg_name = input("Enter Student Full Legal Name: ").strip()
+    reg_roll = input("Enter Student Unique Roll Number: ").strip()
+
+    if not reg_name or not reg_roll:
+        print("✗ Registration Error: Name and Roll attributes cannot be saved empty.")
+        return
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        encoding_str = np.array2string(target_encoding, separator=',', max_line_width=3000)
+        
+        cursor.execute(
+            "INSERT INTO students (roll_no, name, encoding) VALUES (%s, %s, %s)",
+            (reg_roll, reg_name, encoding_str)
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print(f"✓ Profile Linked Successfully into Core Memory Engine: {reg_name}")
+        reload_biometric_cache()
+    except mysql.connector.Error as err:
+        print(f"✗ Local Database Insertion Collision Error: {err}")
+
+# --- FLASK STREAM GENERATOR LOOP ---
+def generate_camera_frames():
     while True:
-        success, frame = camera.read()
-        if not success or frame is None: 
-            continue
-            
-        frame_count += 1
-        if message_timeout > 0:
-            message_timeout -= 1
-            if message_timeout == 0: hud_message = ""
+        ret, frame = video_stream.read()
+        if not ret:
+            break
 
-        # ONLY execute biometric arrays every 4th frame (Saves huge CPU cycles)
-        if frame_count % 4 == 0:
-            # Drop size resolution down to 25% for lightning-fast matching speeds
-            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-            rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-            known_encodings, known_names, known_rolls = load_known_faces()
-            
-            face_locations = face_recognition.face_locations(rgb_small_frame)
-            face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
-            
-            cached_face_boxes = []
-            identity = "Unknown Profile"
-            roll_number = None
+        # Render tracking metrics on the frame array
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        process_gesture_and_biometrics(rgb_frame, frame)
 
-            for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-                matches = face_recognition.compare_faces(known_encodings, face_encoding, tolerance=0.5)
-                if True in matches:
-                    first_match_index = matches.index(True)
-                    identity = known_names[first_match_index]
-                    roll_number = known_rolls[first_match_index]
-                    
-                # Store coordinates upscaled back to 100% video display layer resolution
-                cached_face_boxes.append((top*4, right*4, bottom*4, left*4, identity, roll_number))
-
-            gesture = analyze_hand_gestures(frame)
-            if gesture == "PALM" and identity == "Unknown Profile":
-                PALM_TRIGGER_FLAG = True
-            elif gesture == "THUMBS_UP" and identity != "Unknown Profile":
-                hud_message, hud_color = process_attendance_transaction(roll_number, identity)
-                message_timeout = 30
-
-        # Render tracking bounding boxes smoothly out of our saved cache
-        for (top, right, bottom, left, identity, roll_number) in cached_face_boxes:
-            box_color = (0, 255, 0) if identity != "Unknown Profile" else (0, 0, 255)
-            cv2.rectangle(frame, (left, top), (right, bottom), box_color, 2)
-            cv2.putText(frame, identity, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 1)
-
-        if hud_message:
-            cv2.putText(frame, hud_message, (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.1, hud_color, 3)
-
+        # Encode processed frame to pass seamlessly through the dashboard viewport
         ret, buffer = cv2.imencode('.jpg', frame)
-        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        frame_bytes = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-# --- HTTP Web App System Endpoints ---
-
+# --- ROUTING WEB SYSTEM ENDPOINTS ---
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/video_feed')
 def video_feed():
-    return Response(generate_video_stream(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(generate_camera_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-@app.route('/check_palm')
-def check_palm():
-    global PALM_TRIGGER_FLAG
-    return jsonify({"palm_detected": PALM_TRIGGER_FLAG})
-
-@app.route('/reset_palm')
-def reset_palm():
-    global PALM_TRIGGER_FLAG
-    PALM_TRIGGER_FLAG = False
-    return jsonify({"status": "reset"})
-
-@app.route('/api/students', methods=['GET'])
-def api_get_students():
+@app.route('/api/attendance_status')
+def attendance_status():
     try:
+        today_str = datetime.date.today().strftime('%Y-%m-%d')
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT roll_no, name FROM students ORDER BY name ASC")
-        students = cursor.fetchall()
-        cursor.execute("SELECT log_date, roll_no, name, in_time, out_time FROM attendance_logs ORDER BY id DESC")
-        logs = cursor.fetchall()
-        cursor.close(); conn.close()
-        return jsonify({"students": students, "logs": logs})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/register', methods=['POST'])
-def register():
-    global PALM_TRIGGER_FLAG
-    roll_no = request.form.get('roll_no')
-    name = request.form.get('name')
-    
-    encodings = []
-    for _ in range(15):  # Enhanced range validation sweep 
-        success, frame = camera.read()
-        if not success or frame is None: continue
-        encodings = face_recognition.face_encodings(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        if len(encodings) > 0: break
-
-    if len(encodings) == 0:
-        return jsonify({"status": "error", "message": "Stable face vectors not detected. Try again!"})
         
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO students (roll_no, name, encoding) VALUES (%s, %s, %s)", (roll_no, name, str(list(encodings[0]))))
-        conn.commit(); cursor.close(); conn.close()
-        PALM_TRIGGER_FLAG = False
-        return redirect(url_for('index'))
-    except mysql.connector.Error as err:
-        return jsonify({"status": "error", "message": f"Database allocation crash: {err}"})
+        # 1. Poll unique entries present today
+        cursor.execute(
+            "SELECT COUNT(DISTINCT roll_no) as total FROM attendance_logs WHERE log_date = %s", 
+            (today_str,)
+        )
+        count_data = cursor.fetchone()
+        present_count = count_data['total'] if count_data else 0
 
-@app.route('/export/excel', methods=['GET'])
+        # 2. Extract recent transactional logs for timeline
+        cursor.execute(
+            "SELECT name, roll_no, in_time, out_time FROM attendance_logs WHERE log_date = %s ORDER BY id DESC LIMIT 10", 
+            (today_str,)
+        )
+        recent_logs = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        formatted_logs = []
+        for log in recent_logs:
+            in_time_str = str(log['in_time'])
+            out_time_str = str(log['out_time'])
+            formatted_logs.append({
+                'name': log['name'],
+                'roll_no': log['roll_no'],
+                'in_time': in_time_str[:5],
+                'out_time': out_time_str[:5] if out_time_str != 'Pending' else 'Pending'
+            })
+
+        return jsonify({
+            'status': 'success',
+            'present_count': present_count,
+            'logs': formatted_logs
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/export_excel')
 def export_excel():
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT log_date, roll_no, name, in_time, out_time FROM attendance_logs ORDER BY log_date DESC, in_time DESC")
-        logs = cursor.fetchall()
-        cursor.close(); conn.close()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT log_date, roll_no, name, in_time, out_time FROM attendance_logs ORDER BY id DESC")
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
 
-        wb = openpyxl.Workbook()
+        wb = Workbook()
         ws = wb.active
-        ws.title = "Master Attendance Ledger"
+        ws.title = "System Master Ledger"
         ws.views.sheetView[0].showGridLines = True
 
-        header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid") 
-        zebra_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")  
-        white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-        accent_fill = PatternFill(start_color="F0FDF4", end_color="F0FDF4", fill_type="solid") 
-
-        font_title = Font(name="Segoe UI", size=16, bold=True, color="1E293B")
-        font_header = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
-        font_body = Font(name="Segoe UI", size=10, color="334155")
-        font_bold_body = Font(name="Segoe UI", size=10, bold=True, color="047857")
-
-        align_center = Alignment(horizontal="center", vertical="center")
-        align_left = Alignment(horizontal="left", vertical="center")
-
-        thin_border_side = Side(border_style="thin", color="E2E8F0")
-        border_cell = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
-
-        ws['A1'] = "BIOMETRIC ATTENDANCE SYSTEM - SYSTEM LEDGER REPORT"
-        ws['A1'].font = font_title
-        ws.row_dimensions[1].height = 35
-
-        headers = ["Log Date", "Roll Number", "Full Name", "Check-In Time", "Check-Out Time", "Shift Status"]
-        ws.append([]) 
+        headers = ["Log Date", "Roll Number", "Full Legal Profile Name", "Clock In Time", "Clock Out Status"]
         ws.append(headers)
-        ws.row_dimensions[3].height = 26
 
-        for col_idx, header in enumerate(headers, 1):
-            cell = ws.cell(row=3, column=col_idx)
+        # Style Sheets Definitions (Classic Slate Blue)
+        font_family = "Segoe UI"
+        header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+        header_font = Font(name=font_family, size=11, bold=True, color="FFFFFF")
+        even_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+        odd_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+        active_session_fill = PatternFill(start_color="F0FDF4", end_color="F0FDF4", fill_type="solid")
+        
+        thin_border = Border(
+            left=Side(style='thin', color='E2E8F0'),
+            right=Side(style='thin', color='E2E8F0'),
+            top=Side(style='thin', color='E2E8F0'),
+            bottom=Side(style='thin', color='E2E8F0')
+        )
+
+        for col_idx, text in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.font = header_font
             cell.fill = header_fill
-            cell.font = font_header
-            cell.alignment = align_center
-            cell.border = border_cell
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = thin_border
 
-        current_row = 4
-        for log in logs:
-            log_date, roll_no, name, in_time, out_time = log
-            status_text = "Completed" if out_time != "Pending" else "Active Shift"
-            row_data = [str(log_date), roll_no, name, in_time, out_time, status_text]
-            
+        for row_idx, data in enumerate(rows, 2):
+            row_data = [str(data['log_date']), data['roll_no'], data['name'], str(data['in_time']), data['out_time']]
             ws.append(row_data)
-            ws.row_dimensions[current_row].height = 20
             
-            row_fill = zebra_fill if current_row % 2 == 0 else white_fill
-            if status_text == "Active Shift": row_fill = accent_fill
-
-            for col_idx in range(1, 7):
-                cell = ws.cell(row=current_row, column=col_idx)
-                cell.fill = row_fill
-                cell.font = font_body if col_idx != 6 else font_bold_body
-                cell.border = border_cell
-                cell.alignment = align_center if col_idx in [1, 2, 4, 5, 6] else align_left
-            current_row += 1
+            # Contextual Row Highlighting
+            current_fill = active_session_fill if data['out_time'] == 'Pending' else (even_fill if row_idx % 2 == 0 else odd_fill)
+            
+            for col_idx in range(1, 6):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.font = Font(name=font_family, size=10)
+                cell.fill = current_fill
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal="left" if col_idx == 3 else "center", vertical="center")
 
         for col in ws.columns:
-            max_len = 0
-            col_letter = get_column_letter(col[0].column)
-            for cell in col:
-                if cell.row == 1: continue 
-                if cell.value: max_len = max(max_len, len(str(cell.value)))
-            ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = col[0].column_letter
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
 
-        file_stream = io.BytesIO()
-        wb.save(file_stream)
-        file_stream.seek(0)
-        
-        filename = f"Biometric_Attendance_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-        return send_file(file_stream, as_attachment=True, download_name=filename, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        output_filename = "Biometric_Attendance_Ledger.xlsx"
+        wb.save(output_filename)
+        return send_file(output_filename, as_attachment=True)
     except Exception as e:
-        return jsonify({"status": "error", "message": f"Excel runtime error: {e}"}), 500
+        return f"Operational Generation Timeout Exception: {e}", 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    # Using Port 8000 to prevent port assignment blocks caused by native macOS services
+    app.run(host='127.0.0.1', port=8000, debug=False)

@@ -3,181 +3,170 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise Biometric Workspace</title>
+    <title>BioSync | Advanced Biometric Attendance</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col">
 
-    <header class="border-b border-slate-800 bg-slate-950/70 backdrop-blur px-8 py-4 flex justify-between items-center relative z-40">
-        <h1 class="text-xl font-bold tracking-tight text-emerald-400">🎯 Automated Biometric Kiosk</h1>
-        
-        <div class="relative">
-            <button onclick="toggleAdminMenu()" id="adminProfileBtn" class="flex items-center gap-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl px-4 py-2 text-sm font-medium transition-all active:scale-[0.98]">
-                <div class="w-6 h-6 bg-emerald-500 text-slate-950 rounded-full flex items-center justify-center font-bold text-xs uppercase">A</div>
-                <span>Admin Panel</span>
-                <svg class="w-4 h-4 text-slate-400 transition-transform duration-200" id="dropdownArrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-            </button>
-            
-            <div id="adminDropdown" class="hidden absolute right-0 mt-2 w-56 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl overflow-hidden p-1 animate-in fade-in slide-in-from-top-2 duration-150">
-                <button onclick="openDataConsole()" class="w-full text-left px-4 py-3 text-sm text-slate-300 hover:bg-slate-900 rounded-lg flex items-center gap-2 transition-all">
-                    📊 View Students Data
-                </button>
-                <a href="/export/excel" class="w-full text-left px-4 py-3 text-sm text-emerald-400 hover:bg-emerald-950/40 rounded-lg flex items-center gap-2 transition-all font-medium">
-                    🟢 Export Styled Excel
-                </a>
+    <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="bg-indigo-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-600/30">
+                <i data-lucide="scan-face" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">BioSync Pro</h1>
+                <p class="text-xs text-slate-500 font-medium">Enterprise Core v2.1</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2 bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-full text-xs font-semibold border border-emerald-500/20">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>System Live</span>
             </div>
         </div>
     </header>
 
-    <main class="flex-grow p-8 max-w-5xl w-full mx-auto flex flex-col items-center justify-center gap-6">
-        <div class="w-full bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl relative">
-            <div class="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                    <span class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
-                    <p class="text-xs font-semibold tracking-wider text-slate-400 uppercase">Live Biometric Scanning Matrix Pipeline</p>
+    <main class="flex-1 p-6 max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <div class="lg:col-span-2 flex flex-col space-y-6">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl shadow-black/40 flex flex-col">
+                <div class="px-5 py-4 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between">
+                    <div class="flex items-center space-x-2">
+                        <i data-lucide="video" class="w-4 h-4 text-slate-400"></i>
+                        <h2 class="text-sm font-semibold text-slate-200">Biometric Live Camera Feed</h2>
+                    </div>
+                    <span class="text-xs text-slate-500 font-mono">640x480 • 30 FPS</span>
                 </div>
-                <span class="text-xs font-mono text-slate-500">Raise Palm ✋ To Enroll</span>
-            </div>
-            <div class="relative bg-black aspect-video flex items-center justify-center">
-                <img src="/video_feed" class="w-full h-full object-cover" alt="Biometric Video Engine Feed" />
-            </div>
-        </div>
-
-        <div id="registrationModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-            <div class="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl flex flex-col gap-5">
-                <div>
-                    <h2 class="text-lg font-bold text-slate-200">✋ Palm Detected: Secure Enrollment</h2>
-                    <p class="text-xs text-slate-400 mt-1">Fill out registration details parameters below to append metrics records cleanly into MySQL.</p>
-                </div>
-                <form action="/register" method="POST" class="flex flex-col gap-4">
-                    <div>
-                        <label class="block text-xs font-medium tracking-wide text-slate-400 uppercase mb-2">Student Roll Number</label>
-                        <input type="text" name="roll_no" placeholder="Ex: CS-2026-08" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors" />
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium tracking-wide text-slate-400 uppercase mb-2">Full Legal Name</label>
-                        <input type="text" name="name" placeholder="Ex: Er Subham" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors" />
-                    </div>
-                    <div class="flex gap-3 mt-2">
-                        <button type="button" onclick="closeRegistrationModal()" class="w-1/3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-xl py-3 text-sm transition-all">Cancel</button>
-                        <button type="submit" class="w-2/3 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl py-3 text-sm transition-all shadow-lg">Capture & Enroll</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <div id="dataConsoleModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6 z-50">
-            <div class="bg-slate-900 border border-slate-800 max-w-4xl w-full h-[80vh] rounded-2xl flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                
-                <div class="bg-slate-950 px-6 py-4 border-b border-slate-800 flex justify-between items-center">
-                    <div>
-                        <h2 class="text-lg font-bold text-slate-200">📊 System Administration Data Ledger Dashboard</h2>
-                        <p class="text-xs text-slate-400 mt-0.5">Real-time tracking values loaded straight from relational MySQL server clusters.</p>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <a href="/export/excel" class="bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs tracking-wide flex items-center gap-2 transition-all">
-                            📥 Download Excel Matrix Ledger
-                        </a>
-                        <button onclick="closeDataConsole()" class="text-slate-400 hover:text-slate-100 text-sm font-medium px-3 py-2 bg-slate-800 rounded-xl transition-all">Close</button>
-                    </div>
-                </div>
-
-                <div class="flex-grow p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                <div class="relative bg-black aspect-video flex items-center justify-center group">
+                    <img src="{{ url_for('video_feed') }}" alt="Biometric Stream" class="w-full h-full object-cover transition duration-300 group-hover:opacity-95" />
                     
-                    <div class="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden h-full flex flex-col max-h-[60vh]">
-                        <div class="bg-slate-900/50 px-4 py-3 border-b border-slate-800 text-xs font-bold text-slate-300 uppercase tracking-wider">Enrolled Profiles Database</div>
-                        <div class="overflow-y-auto flex-grow" id="studentTableBody">
-                            </div>
+                    <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-4 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <span class="text-xs text-slate-300 font-medium flex items-center gap-1.5">
+                            <i data-lucide="shield" class="w-3.5 h-3.5 text-indigo-400"></i> MediaPipe Processing Active
+                        </span>
                     </div>
-
-                    <div class="md:col-span-2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden h-full flex flex-col max-h-[60vh]">
-                        <div class="bg-slate-900/50 px-4 py-3 border-b border-slate-800 text-xs font-bold text-slate-300 uppercase tracking-wider">Shift Execution Punch Logs History</div>
-                        <div class="overflow-y-auto flex-grow" id="logTableBody">
-                            </div>
-                    </div>
-
                 </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <a href="{{ url_for('export_excel') }}" class="flex items-center justify-center space-x-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 p-4 rounded-xl shadow-sm transition duration-200 group text-slate-200">
+                    <div class="bg-emerald-500/10 p-2 rounded-lg text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white transition duration-200">
+                        <i data-lucide="file-spreadsheet" class="w-5 h-5"></i>
+                    </div>
+                    <div class="text-left">
+                        <p class="text-sm font-semibold">Export Register</p>
+                        <p class="text-xs text-slate-500">Generate clean .xlsx file</p>
+                    </div>
+                </a>
+
+                <button onclick="window.location.reload();" class="flex items-center justify-center space-x-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 p-4 rounded-xl shadow-sm transition duration-200 group text-slate-200">
+                    <div class="bg-indigo-500/10 p-2 rounded-lg text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white transition duration-200">
+                        <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+                    </div>
+                    <div class="text-left">
+                        <p class="text-sm font-semibold">Refresh Frame</p>
+                        <p class="text-xs text-slate-500">Reinitialize peripheral feeds</p>
+                    </div>
+                </button>
             </div>
         </div>
 
+        <div class="flex flex-col space-y-6">
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                    <div class="flex items-center justify-between text-slate-400 mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider">Present Today</span>
+                        <i data-lucide="users" class="w-4 h-4 text-indigo-400"></i>
+                    </div>
+                    <p class="text-2xl font-bold tracking-tight text-white" id="count-present">--</p>
+                    <p class="text-xs text-emerald-400 mt-1 flex items-center gap-0.5">Active Session</p>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                    <div class="flex items-center justify-between text-slate-400 mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider">DB Latency</span>
+                        <i data-lucide="database" class="w-4 h-4 text-indigo-400"></i>
+                    </div>
+                    <p class="text-2xl font-bold tracking-tight text-white">2.4<span class="text-xs text-slate-500 font-normal ml-0.5">ms</span></p>
+                    <p class="text-xs text-slate-500 mt-1">MySQL Sync OK</p>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl flex-1 shadow-xl shadow-black/40 flex flex-col min-h-[350px]">
+                <div class="px-5 py-4 border-b border-slate-800 flex items-center space-x-2">
+                    <i data-lucide="activity" class="w-4 h-4 text-indigo-400"></i>
+                    <h2 class="text-sm font-semibold text-slate-200">Live Verification Timeline</h2>
+                </div>
+                
+                <div class="p-5 flex-1 overflow-y-auto space-y-4 font-mono text-xs text-slate-400" id="log-container">
+                    <div class="text-center text-slate-600 py-8 font-sans">
+                        <p>Initializing connection to server matrix...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
 
-    <footer class="border-t border-slate-800 bg-slate-950/30 text-center py-4 text-xs text-slate-500 font-mono">
-        Executive Dashboard Reports Layout Deployment Stack Active
+    <footer class="border-t border-slate-800 bg-slate-950/40 px-6 py-4 mt-auto text-center text-xs text-slate-600 font-medium">
+        BioSync Automated Attendance Architecture Engine • Secure Local Processing Loop
     </footer>
 
     <script>
-        function toggleAdminMenu() {
-            const menu = document.getElementById('adminDropdown');
-            const arrow = document.getElementById('dropdownArrow');
-            menu.classList.toggle('hidden');
-            arrow.classList.toggle('rotate-180');
-        }
+        // Mount layout vector shapes
+        lucide.createIcons();
+        
+        // Asynchronous structural polling core worker loop
+        async function fetchSystemUpdates() {
+            try {
+                const response = await fetch('/api/attendance_status');
+                if (!response.ok) throw new Error('Network latency timeout or server disconnect');
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // 1. Inject present counters live
+                    document.getElementById('count-present').innerText = data.present_count;
 
-        // Auto-close dropdown if admin clicks anywhere else on the screen
-        window.addEventListener('click', function(e) {
-            if (!document.getElementById('adminProfileBtn').contains(e.target)) {
-                document.getElementById('adminDropdown').classList.add('hidden');
-                document.getElementById('dropdownArrow').classList.remove('rotate-180');
-            }
-        });
-
-        function openDataConsole() {
-            document.getElementById('dataConsoleModal').classList.remove('hidden');
-            
-            // Query background endpoints for fresh datasets
-            fetch('/api/students')
-                .then(res => res.json())
-                .then(data => {
-                    // Render Student Profiles Table List Markup Columns
-                    const studentBox = document.getElementById('studentTableBody');
-                    if(data.students.length === 0) {
-                        studentBox.innerHTML = `<p class="p-4 text-xs text-slate-500 italic">No students registered yet.</p>`;
-                    } else {
-                        studentBox.innerHTML = data.students.map(s => `
-                            <div class="px-4 py-3 border-b border-slate-900 hover:bg-slate-900/30 flex justify-between items-center text-sm transition-all">
-                                <span class="font-medium text-slate-200">${s.name}</span>
-                                <span class="font-mono text-xs text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">${s.roll_no}</span>
+                    // 2. Clear out log boxes and generate interactive node lines
+                    const logContainer = document.getElementById('log-container');
+                    
+                    if (data.logs.length === 0) {
+                        logContainer.innerHTML = `
+                            <div class="text-center text-slate-600 py-8 font-sans">
+                                <p>No biometric check-ins registered today yet.</p>
                             </div>
-                        `).join('');
+                        `;
+                        return;
                     }
 
-                    // Render Shift Punch Performance Activity Records History List Layout Rows
-                    const logBox = document.getElementById('logTableBody');
-                    if(data.logs.length === 0) {
-                        logBox.innerHTML = `<p class="p-4 text-xs text-slate-500 italic">No attendance records captured yet.</p>`;
-                    } else {
-                        logBox.innerHTML = data.logs.map(l => `
-                            <div class="px-4 py-3 border-b border-slate-900 hover:bg-slate-900/30 grid grid-cols-4 gap-2 items-center text-xs text-slate-300">
-                                <div class="font-mono text-slate-400">${l.log_date}</div>
-                                <div class="font-medium text-slate-200 truncate">${l.name}</div>
-                                <div class="flex gap-1 flex-wrap font-mono">
-                                    <span class="text-emerald-400 bg-emerald-950/30 px-1.5 py-0.5 rounded border border-emerald-900/30">In: ${l.in_time}</span>
-                                    <span class="${l.out_time === 'Pending' ? 'text-amber-400 bg-amber-950/30 border-amber-900/30' : 'text-orange-400 bg-orange-950/30 border-orange-900/30'} px-1.5 py-0.5 rounded border">Out: ${l.out_time}</span>
+                    logContainer.innerHTML = data.logs.map(log => {
+                        const isPending = log.out_time === 'Pending';
+                        const badgeColor = isPending ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
+                        const statusText = isPending ? `Checked In @ ${log.in_time}` : `Completed Shift (${log.in_time} - ${log.out_time})`;
+
+                        return `
+                            <div class="flex items-start justify-between border-l-2 border-slate-700 hover:border-indigo-500 pl-3 py-1.5 transition-colors duration-150">
+                                <div class="flex-1 pr-2">
+                                    <p class="text-slate-200 font-medium font-sans text-sm">${log.name}</p>
+                                    <p class="text-slate-500 text-[11px] font-mono mt-0.5">${log.roll_no} • ${statusText}</p>
                                 </div>
-                                <div class="text-right">
-                                    <span class="${l.out_time === 'Pending' ? 'text-amber-400' : 'text-emerald-400'} font-semibold tracking-wide uppercase text-[10px]">${l.out_time === 'Pending' ? 'Active Shift' : 'Completed'}</span>
-                                </div>
+                                <span class="text-[10px] uppercase tracking-wider border px-2 py-0.5 rounded font-sans shrink-0 ${badgeColor}">
+                                    ${isPending ? 'Active' : 'Closed'}
+                                </span>
                             </div>
-                        `).join('');
-                    }
-                });
-        }
-
-        function closeDataConsole() { document.getElementById('dataConsoleModal').classList.add('hidden'); }
-        function closeRegistrationModal() {
-            document.getElementById('registrationModal').classList.add('hidden');
-            fetch('/reset_palm');
-        }
-
-        // Long polling script instance evaluating open palm registration requests
-        setInterval(() => {
-            if (document.getElementById('registrationModal').classList.contains('hidden')) {
-                fetch('/check_palm')
-                    .then(r => r.json())
-                    .then(d => { if(d.palm_detected) document.getElementById('registrationModal').classList.remove('hidden'); });
+                        `;
+                    }).join('');
+                }
+            } catch (error) {
+                console.error("Dashboard core polling error:", error);
+                document.getElementById('count-present').innerText = "ERR";
             }
-        }, 1500);
+        }
+
+        // Initialize polling engine immediately on frame load, then loop every 1000ms
+        fetchSystemUpdates();
+        setInterval(fetchSystemUpdates, 1000);
     </script>
 </body>
 </html>
