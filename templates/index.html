@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Biometric Workspace</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
+
+    <header class="border-b border-slate-800 bg-slate-950/70 backdrop-blur px-8 py-4 flex justify-between items-center relative z-40">
+        <h1 class="text-xl font-bold tracking-tight text-emerald-400">🎯 Automated Biometric Kiosk</h1>
+        
+        <div class="relative">
+            <button onclick="toggleAdminMenu()" id="adminProfileBtn" class="flex items-center gap-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl px-4 py-2 text-sm font-medium transition-all active:scale-[0.98]">
+                <div class="w-6 h-6 bg-emerald-500 text-slate-950 rounded-full flex items-center justify-center font-bold text-xs uppercase">A</div>
+                <span>Admin Panel</span>
+                <svg class="w-4 h-4 text-slate-400 transition-transform duration-200" id="dropdownArrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </button>
+            
+            <div id="adminDropdown" class="hidden absolute right-0 mt-2 w-56 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl overflow-hidden p-1 animate-in fade-in slide-in-from-top-2 duration-150">
+                <button onclick="openDataConsole()" class="w-full text-left px-4 py-3 text-sm text-slate-300 hover:bg-slate-900 rounded-lg flex items-center gap-2 transition-all">
+                    📊 View Students Data
+                </button>
+                <a href="/export/excel" class="w-full text-left px-4 py-3 text-sm text-emerald-400 hover:bg-emerald-950/40 rounded-lg flex items-center gap-2 transition-all font-medium">
+                    🟢 Export Styled Excel
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow p-8 max-w-5xl w-full mx-auto flex flex-col items-center justify-center gap-6">
+        <div class="w-full bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl relative">
+            <div class="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
+                    <p class="text-xs font-semibold tracking-wider text-slate-400 uppercase">Live Biometric Scanning Matrix Pipeline</p>
+                </div>
+                <span class="text-xs font-mono text-slate-500">Raise Palm ✋ To Enroll</span>
+            </div>
+            <div class="relative bg-black aspect-video flex items-center justify-center">
+                <img src="/video_feed" class="w-full h-full object-cover" alt="Biometric Video Engine Feed" />
+            </div>
+        </div>
+
+        <div id="registrationModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+            <div class="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl flex flex-col gap-5">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-200">✋ Palm Detected: Secure Enrollment</h2>
+                    <p class="text-xs text-slate-400 mt-1">Fill out registration details parameters below to append metrics records cleanly into MySQL.</p>
+                </div>
+                <form action="/register" method="POST" class="flex flex-col gap-4">
+                    <div>
+                        <label class="block text-xs font-medium tracking-wide text-slate-400 uppercase mb-2">Student Roll Number</label>
+                        <input type="text" name="roll_no" placeholder="Ex: CS-2026-08" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium tracking-wide text-slate-400 uppercase mb-2">Full Legal Name</label>
+                        <input type="text" name="name" placeholder="Ex: Er Subham" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors" />
+                    </div>
+                    <div class="flex gap-3 mt-2">
+                        <button type="button" onclick="closeRegistrationModal()" class="w-1/3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-xl py-3 text-sm transition-all">Cancel</button>
+                        <button type="submit" class="w-2/3 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl py-3 text-sm transition-all shadow-lg">Capture & Enroll</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="dataConsoleModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6 z-50">
+            <div class="bg-slate-900 border border-slate-800 max-w-4xl w-full h-[80vh] rounded-2xl flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                
+                <div class="bg-slate-950 px-6 py-4 border-b border-slate-800 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-200">📊 System Administration Data Ledger Dashboard</h2>
+                        <p class="text-xs text-slate-400 mt-0.5">Real-time tracking values loaded straight from relational MySQL server clusters.</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <a href="/export/excel" class="bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs tracking-wide flex items-center gap-2 transition-all">
+                            📥 Download Excel Matrix Ledger
+                        </a>
+                        <button onclick="closeDataConsole()" class="text-slate-400 hover:text-slate-100 text-sm font-medium px-3 py-2 bg-slate-800 rounded-xl transition-all">Close</button>
+                    </div>
+                </div>
+
+                <div class="flex-grow p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                    
+                    <div class="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden h-full flex flex-col max-h-[60vh]">
+                        <div class="bg-slate-900/50 px-4 py-3 border-b border-slate-800 text-xs font-bold text-slate-300 uppercase tracking-wider">Enrolled Profiles Database</div>
+                        <div class="overflow-y-auto flex-grow" id="studentTableBody">
+                            </div>
+                    </div>
+
+                    <div class="md:col-span-2 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden h-full flex flex-col max-h-[60vh]">
+                        <div class="bg-slate-900/50 px-4 py-3 border-b border-slate-800 text-xs font-bold text-slate-300 uppercase tracking-wider">Shift Execution Punch Logs History</div>
+                        <div class="overflow-y-auto flex-grow" id="logTableBody">
+                            </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="border-t border-slate-800 bg-slate-950/30 text-center py-4 text-xs text-slate-500 font-mono">
+        Executive Dashboard Reports Layout Deployment Stack Active
+    </footer>
+
+    <script>
+        function toggleAdminMenu() {
+            const menu = document.getElementById('adminDropdown');
+            const arrow = document.getElementById('dropdownArrow');
+            menu.classList.toggle('hidden');
+            arrow.classList.toggle('rotate-180');
+        }
+
+        // Auto-close dropdown if admin clicks anywhere else on the screen
+        window.addEventListener('click', function(e) {
+            if (!document.getElementById('adminProfileBtn').contains(e.target)) {
+                document.getElementById('adminDropdown').classList.add('hidden');
+                document.getElementById('dropdownArrow').classList.remove('rotate-180');
+            }
+        });
+
+        function openDataConsole() {
+            document.getElementById('dataConsoleModal').classList.remove('hidden');
+            
+            // Query background endpoints for fresh datasets
+            fetch('/api/students')
+                .then(res => res.json())
+                .then(data => {
+                    // Render Student Profiles Table List Markup Columns
+                    const studentBox = document.getElementById('studentTableBody');
+                    if(data.students.length === 0) {
+                        studentBox.innerHTML = `<p class="p-4 text-xs text-slate-500 italic">No students registered yet.</p>`;
+                    } else {
+                        studentBox.innerHTML = data.students.map(s => `
+                            <div class="px-4 py-3 border-b border-slate-900 hover:bg-slate-900/30 flex justify-between items-center text-sm transition-all">
+                                <span class="font-medium text-slate-200">${s.name}</span>
+                                <span class="font-mono text-xs text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">${s.roll_no}</span>
+                            </div>
+                        `).join('');
+                    }
+
+                    // Render Shift Punch Performance Activity Records History List Layout Rows
+                    const logBox = document.getElementById('logTableBody');
+                    if(data.logs.length === 0) {
+                        logBox.innerHTML = `<p class="p-4 text-xs text-slate-500 italic">No attendance records captured yet.</p>`;
+                    } else {
+                        logBox.innerHTML = data.logs.map(l => `
+                            <div class="px-4 py-3 border-b border-slate-900 hover:bg-slate-900/30 grid grid-cols-4 gap-2 items-center text-xs text-slate-300">
+                                <div class="font-mono text-slate-400">${l.log_date}</div>
+                                <div class="font-medium text-slate-200 truncate">${l.name}</div>
+                                <div class="flex gap-1 flex-wrap font-mono">
+                                    <span class="text-emerald-400 bg-emerald-950/30 px-1.5 py-0.5 rounded border border-emerald-900/30">In: ${l.in_time}</span>
+                                    <span class="${l.out_time === 'Pending' ? 'text-amber-400 bg-amber-950/30 border-amber-900/30' : 'text-orange-400 bg-orange-950/30 border-orange-900/30'} px-1.5 py-0.5 rounded border">Out: ${l.out_time}</span>
+                                </div>
+                                <div class="text-right">
+                                    <span class="${l.out_time === 'Pending' ? 'text-amber-400' : 'text-emerald-400'} font-semibold tracking-wide uppercase text-[10px]">${l.out_time === 'Pending' ? 'Active Shift' : 'Completed'}</span>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                });
+        }
+
+        function closeDataConsole() { document.getElementById('dataConsoleModal').classList.add('hidden'); }
+        function closeRegistrationModal() {
+            document.getElementById('registrationModal').classList.add('hidden');
+            fetch('/reset_palm');
+        }
+
+        // Long polling script instance evaluating open palm registration requests
+        setInterval(() => {
+            if (document.getElementById('registrationModal').classList.contains('hidden')) {
+                fetch('/check_palm')
+                    .then(r => r.json())
+                    .then(d => { if(d.palm_detected) document.getElementById('registrationModal').classList.remove('hidden'); });
+            }
+        }, 1500);
+    </script>
+</body>
+</html>
